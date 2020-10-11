@@ -83,19 +83,19 @@ class OpenES:
     num_params,
     sigma_init=0.1,
     sigma_decay=0.999,
-    sigma_limit=0.01,
+    sigma_min=0.01,
     alpha_init=0.1,
     alpha_decay=0.995,
-    alpha_limit=0.001,
+    alpha_min=0.001,
     gamma=0.9,
   ):
     self.num_params = num_params
     self.sigma_init = sigma_init
     self.sigma_decay = sigma_decay
-    self.sigma_limit = sigma_limit
+    self.sigma_min = sigma_min
     self.alpha_init = alpha_init
     self.alpha_decay = alpha_decay
-    self.alpha_limit = alpha_limit
+    self.alpha_min = alpha_min
     self.gamma = gamma
     self.mu = np.zeros(num_params)
     self.sigma = self.sigma_init
@@ -118,5 +118,5 @@ class OpenES:
     delta = 1 / (popsize * self.sigma) * (self.eps.T @ rank)
     self.v = self.gamma * self.v + (1 - self.gamma) * delta
     self.mu += self.alpha * self.v
-    # self.sigma = max(self.sigma * self.sigma_decay, self.sigma_limit)
-    # self.alpha = max(self.alpha * self.alpha_decay, self.alpha_limit)
+    self.sigma = max(self.sigma * self.sigma_decay, self.sigma_min)
+    self.alpha = max(self.alpha * self.alpha_decay, self.alpha_min)

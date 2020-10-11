@@ -1,13 +1,13 @@
 import numpy as np
 import numba
 
+##############
+# Functional #
+##############
+
 @numba.njit
 def linear(x, W, b):
   return x @ W + b
-
-@numba.njit
-def step(x):
-  return (x > 0).astype(x.dtype)
 
 @numba.njit
 def sigmoid(x):
@@ -25,6 +25,10 @@ def relu(x):
 def softmax(x):
   e_x = np.exp(x - np.max(x))
   return e_x / np.sum(e_x, axis=0)
+
+##############
+# Containers #
+##############
 
 class Module:
   def __init__(self):
@@ -87,6 +91,10 @@ class Group(_Modules):
   def __call__(self, x):
     return np.concatenate([m(x) for m in self._children])
 
+###############
+# Activations #
+###############
+
 class Tanh(Module):
   def __call__(self, x):
     return tanh(x)
@@ -103,6 +111,10 @@ class Softmax(Module):
   def __call__(self, x):
     return softmax(x)
 
+################
+# Feed forward #
+################
+
 class Linear(Module):
   def __init__(self, N_i, N_o):
     super().__init__()
@@ -114,25 +126,37 @@ class Linear(Module):
   def __call__(self, x):
     return linear(x, self.W, self.b)
 
-class GraphConv(Module):
-  def __init__(self, N_i, N_o):
-    super().__init__()
-    self.N_i = N_i
-    self.N_o = N_o
-    self.register_param("W", (N_i, N_o))
-    self.register_param("b", (N_o,))
-
-  def __call__(self, x, A):
-    z = linear(x, self.W, self.b)
-    z = linear(norm_adj(A), z, 0)
-    return z
-
-class RNN(Module):
-  def __init__(self, N_i, N_h, norm=False):
+class Hebbian(Module):
+  def __init__(self, N_i, N_h, eta):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.norm = norm
+    self.eta = eta
+    self.register_param("W", (N_i, N_h))
+    self.register_param("A", (N_i, N_h))
+    self.register_param("b", (N_h,))
+    self.reset()
+
+  def reset(self):
+    self._Hebb = np.zeros((self.N_i, self.N_h))
+    return None
+
+  def __call__(self, x):
+    W = self.W + self.A * self._Hebb
+    y = tanh(linear(x, W, self.b))
+    delta = self.eta * np.outer(x, y)
+    self._Hebb = (1 - self.eta) * self._Hebb + delta
+    return y
+
+#############
+# Recurrent #
+#############
+
+class RNN(Module):
+  def __init__(self, N_i, N_h):
+    super().__init__()
+    self.N_i = N_i
+    self.N_h = N_h
     self.register_param("W", (N_i + N_h, N_h))
     self.register_param("b", (N_h,))
     self.register_param("h_init", (N_h,))
@@ -144,18 +168,41 @@ class RNN(Module):
 
   def __call__(self, x):
     xh = np.concatenate([x, self._h])
-    z = linear(xh, self.W, self.b)
-    if self.norm:
-      z = (z - np.mean(z)) / np.std(z)
-    self._h = tanh(z)
+    self._h = tanh(linear(xh, self.W, self.b))
     return np.array(self._h)
 
-class LSTM(Module):
-  def __init__(self, N_i, N_h, norm=False):
+class HebbianRNN(Module):
+  def __init__(self, N_i, N_h, eta):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.norm = norm
+    self.eta = eta
+    self.register_param("W", (N_i, N_h))
+    self.register_param("U", (N_h, N_h))
+    self.register_param("A", (N_h, N_h))
+    self.register_param("b", (N_h,))
+    self.register_param("h_init", (N_h,))
+    self.reset()
+
+  def reset(self):
+    self._Hebb = np.zeros((self.N_h, self.N_h))
+    self._h = np.array(self.h_init)
+    return np.array(self._h)
+
+  def __call__(self, x):
+    h0 = self._h
+    U = self.U + self.A * self._Hebb
+    h1 = tanh(linear(x, self.W, self.b) + linear(h0, U, 0))
+    delta = self.eta * np.outer(h0, h1)
+    self._Hebb = (1 - self.eta) * self._Hebb + delta
+    self._h = h1
+    return np.array(self._h)
+
+class LSTM(Module):
+  def __init__(self, N_i, N_h):
+    super().__init__()
+    self.N_i = N_i
+    self.N_h = N_h
     self.register_param("W", (N_i + N_h, 4 * N_h))
     self.register_param("b", (4 * N_h,))
     self.register_param("c_init", (N_h,))
@@ -170,8 +217,6 @@ class LSTM(Module):
   def __call__(self, x):
     xh = np.concatenate([x, self._h])
     z = linear(xh, self.W, self.b)
-    if self.norm:
-      z = (z - np.mean(z)) / np.std(z)
     z = np.split(z, 4)
     f = sigmoid(z[0])
     i = sigmoid(z[1])
@@ -180,4 +225,3 @@ class LSTM(Module):
     self._c = f * self._c + i * c
     self._h = o * tanh(self._c)
     return np.array(self._h)
-

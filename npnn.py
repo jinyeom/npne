@@ -127,11 +127,11 @@ class Linear(Module):
     return linear(x, self.W, self.b)
 
 class Hebbian(Module):
-  def __init__(self, N_i, N_h, eta):
+  def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.eta = eta
+    self.η = η
     self.register_param("W", (N_i, N_h))
     self.register_param("A", (N_i, N_h))
     self.register_param("b", (N_h,))
@@ -144,8 +144,8 @@ class Hebbian(Module):
   def __call__(self, x):
     W = self.W + self.A * self._Hebb
     y = tanh(linear(x, W, self.b))
-    delta = self.eta * np.outer(x, y)
-    self._Hebb = (1 - self.eta) * self._Hebb + delta
+    ΔHebb = self.η * np.outer(x, y)
+    self._Hebb = (1 - self.η) * self._Hebb + ΔHebb
     return y
 
 #############
@@ -172,11 +172,11 @@ class RNN(Module):
     return np.array(self._h)
 
 class HebbianRNN(Module):
-  def __init__(self, N_i, N_h, eta):
+  def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.eta = eta
+    self.η = η
     self.register_param("W", (N_i, N_h))
     self.register_param("U", (N_h, N_h))
     self.register_param("A", (N_h, N_h))
@@ -193,8 +193,8 @@ class HebbianRNN(Module):
     h0 = self._h
     U = self.U + self.A * self._Hebb
     h1 = tanh(linear(x, self.W, self.b) + linear(h0, U, 0))
-    delta = self.eta * np.outer(h0, h1)
-    self._Hebb = (1 - self.eta) * self._Hebb + delta
+    ΔHebb = self.η * np.outer(h0, h1)
+    self._Hebb = (1 - self.η) * self._Hebb + ΔHebb
     self._h = h1
     return np.array(self._h)
 
@@ -216,12 +216,12 @@ class LSTM(Module):
 
   def __call__(self, x):
     xh = np.concatenate([x, self._h])
-    z = linear(xh, self.W, self.b)
-    z = np.split(z, 4)
-    f = sigmoid(z[0])
-    i = sigmoid(z[1])
-    o = sigmoid(z[2])
-    c = np.tanh(z[3])
+    fioc = linear(xh, self.W, self.b)
+    fioc = np.split(fioc, 4)
+    f = sigmoid(fioc[0])
+    i = sigmoid(fioc[1])
+    o = sigmoid(fioc[2])
+    c = np.tanh(fioc[3])
     self._c = f * self._c + i * c
     self._h = o * tanh(self._c)
     return np.array(self._h)

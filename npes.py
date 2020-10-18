@@ -1,85 +1,65 @@
 import multiprocessing as mp
 import numpy as np
 
-##############
-# Evaluation #
-##############
+#############
+# Utilities #
+#############
+
+class Seeder:
+  def __init__(self, seed=0):
+    self.seed = seed
+    self._rs = np.random.RandomState(seed=seed)
+
+  def __call__(self, size):
+    seeds = self._rs.randint(2 ** 31 - 1, size=size, dtype=int)
+    return seeds.tolist()
 
 class Evaluator:
-  def __init__(self, num_workers, worker_size):
+  def __init__(self, num_workers=None):
+    if num_workers is None:
+      num_workers = mp.cpu_count()
     self.num_workers = num_workers
-    self.worker_size = worker_size
-    self.pipes = []
-    self.procs = []
-    for rank in range(self.num_workers):
-      parent_pipe, child_pipe = mp.Pipe()
-      proc = mp.Process(
-        target=self._worker,
-        name=f"Worker{rank}",
-        args=(rank, child_pipe, parent_pipe),
-      )
-      proc.daemon = True
-      proc.start()
-      child_pipe.close()
-      self.pipes.append(parent_pipe)
-      self.procs.append(proc)
 
-  def __enter__(self):
-    return self
-
-  def __exit__(self, exc_type, exc_value, traceback):
-    for pipe in self.pipes:
-      pipe.send(("close", None))
-    _, success = zip(*[pipe.recv() for pipe in self.pipes])
-    assert all(success)
-
-  def _build_agent(self):
+  def evaluate(self, solution, seed):
     raise NotImplementedError
 
-  def _build_env(self):
-    raise NotImplementedError
+  def __call__(self, solutions, seeds):
+    async_results = []
+    with mp.Pool(self.num_workers) as pool:
+      for solution, seed in zip(solutions, seeds):
+        func = self.evaluate
+        args = (solution, seed)
+        result = pool.apply_async(func, args=args)
+        async_results.append(result)
+      fitness = [r.get() for r in async_results]
+    return np.array(fitness)
 
-  def _evaluate_once(self, agent, env):
-    raise NotImplementedError
+class DecayingFloat:
+  def __init__(self, init, decay, limit):
+    assert 0 < decay <= 1
+    assert init >= limit
+    self.init = init
+    self.decay = decay
+    self.limit = limit
+    self.value = init
 
-  def _evaluate(self, agent, env, num_evals):
-    return np.mean([self._evaluate_once(agent, env) for _ in range(num_evals)])
+  def __float__(self): return float(self.value)
+  def __repr__(self): return f"DecayingFloat({self.value})"
+  def __add__(self, other): return float(self) + other
+  def __radd__(self, other): return other + float(self)
+  def __sub__(self, other): return float(self) - other
+  def __rsub__(self, other): return other - float(self)
+  def __mul__(self, other): return float(self) * other
+  def __rmul__(self, other): return other * float(self)
+  def __truediv__(self, other): return float(self) / other
+  def __rtruediv__(self, other): return other / float(self)
+  def __pow__(self, other): return float(self) ** other
+  def __rpow__(self, other): return other ** float(self)
 
-  def _worker(self, rank, pipe, parent_pipe):
-    parent_pipe.close()
-    agents = [self._build_agent() for _ in range(self.worker_size)]
-    envs = [self._build_env() for _ in range(self.worker_size)]
-    while True:
-      command, data = pipe.recv()
-      if command == "evaluate":
-        solutions, seeds, num_evals = data
-        fitness = []
-        for agent, env, solution, seed in zip(agents, envs, solutions, seeds):
-          agent.set_params(solution)
-          env.seed(int(seed))
-          fitness.append(self._evaluate(agent, env, num_evals))
-        fitness = np.array(fitness)
-        pipe.send((fitness, True))
-      elif command == "close":
-        pipe.send((None, True))
-        return True
-      else:
-        raise NotImplementedError
-
-  def __len__(self):
-    return self.num_workers * self.worker_size
-
-  def __call__(self, solutions, seeds, num_evals):
-    num_solutions = len(solutions)
-    num_workers = int(np.ceil(num_solutions / self.worker_size))
-    pipes = self.pipes[:num_workers]
-    for i, pipe in enumerate(pipes):
-      start = i * self.worker_size
-      end = min(start + self.worker_size, num_solutions)
-      pipe.send(("evaluate", (solutions[start:end], seeds[start:end], num_evals)))
-    fitness, success = zip(*[pipe.recv() for pipe in pipes])
-    assert all(success)
-    return np.concatenate(fitness)
+  def update(self):
+    self.value = self.value * self.decay
+    self.value = max(self.value, self.limit)
+    return float(self.value)
 
 ##############
 # Optimizers #
@@ -127,27 +107,26 @@ class Adam(Optimizer):
     return -α * self.m / (np.sqrt(self.v) + 1e-8)
 
 ########################
-# Evolution Strategies #
+# Evolution strategies #
 ########################
 
-class OpenES:
-  def __init__(self, optim, σ=0.1):
+class ES:
+  def __init__(self, optim, σ):
     self.optim = optim
+    self.μ = np.array(optim.θ)
     self.σ = σ
     self.ε = None
 
   def sample(self, popsize):
     assert popsize % 2 == 0
-    θ = np.array(self.optim.θ)
-    ε_split = np.random.randn(popsize // 2, len(θ))
+    ε_split = np.random.randn(popsize // 2, len(self.μ))
     self.ε = np.concatenate([ε_split, -ε_split], axis=0)
-    return θ + self.σ * self.ε
+    return self.μ + self.σ * self.ε
 
-  def step(self, fitness):
-    popsize = fitness.shape[0]
-    rank = np.empty_like(fitness, dtype=np.long)
-    rank[np.argsort(fitness)] = np.arange(popsize)
-    rank = rank.astype(fitness.dtype) / (popsize - 1) - 0.5
-    rank = (rank - np.mean(rank)) / (np.std(rank) + 1e-8)
-    grad = 1 / (popsize * self.σ) * (self.ε.T @ rank)
-    self.optim.update(grad)
+  def update(self, F):
+    rank = np.empty_like(F, dtype=np.long)
+    rank[np.argsort(F)] = np.arange(len(F))
+    F = rank.astype(F.dtype) / (len(F) - 1) - 0.5
+    F = (F - np.mean(F)) / (np.std(F) + 1e-8)
+    grad = 1 / (len(F) * self.σ) * (self.ε.T @ F)
+    self.μ = self.optim.update(-grad)

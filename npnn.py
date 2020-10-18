@@ -37,7 +37,8 @@ class Module:
 
   @property
   def params(self):
-    return np.concatenate([np.ravel(p) for p in self._params])
+    params = [np.ravel(p) for p in self._params]
+    return np.concatenate(params)
 
   def __len__(self):
     return sum(p.size for p in self._params)
@@ -49,7 +50,7 @@ class Module:
     self._params.extend(module._params)
 
   def register_param(self, name, shape):
-    param = np.empty(shape)
+    param = np.empty(shape, dtype=np.float32)
     setattr(self, name, param)
     self._params.append(param)
 
@@ -57,8 +58,11 @@ class Module:
     assert params.size == len(self)
     for dst in self._params:
       src, params = params[:dst.size], params[dst.size:]
+      src = np.trunc(src * 10 ** 4) / 10 ** 4
       src = np.array(src).reshape(dst.shape)
+      src = src.astype(np.float32)
       np.copyto(dst, src)
+    return self
 
   def reset(self):
     return None
@@ -89,7 +93,8 @@ class Stack(_Modules):
 
 class Group(_Modules):
   def __call__(self, x):
-    return np.concatenate([m(x) for m in self._children])
+    x = [m(x) for m in self._children]
+    return np.concatenate(x)
 
 ###############
 # Activations #
@@ -126,7 +131,7 @@ class Linear(Module):
   def __call__(self, x):
     return linear(x, self.W, self.b)
 
-class Hebbian(Module):
+class Plastic(Module):
   def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
@@ -159,11 +164,11 @@ class RNN(Module):
     self.N_h = N_h
     self.register_param("W", (N_i + N_h, N_h))
     self.register_param("b", (N_h,))
-    self.register_param("h_init", (N_h,))
+    self.register_param("h0", (N_h,))
     self.reset()
 
   def reset(self):
-    self._h = np.array(self.h_init)
+    self._h = np.array(self.h0)
     return np.array(self._h)
 
   def __call__(self, x):
@@ -171,7 +176,7 @@ class RNN(Module):
     self._h = tanh(linear(xh, self.W, self.b))
     return np.array(self._h)
 
-class HebbianRNN(Module):
+class PlasticRNN(Module):
   def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
@@ -181,21 +186,21 @@ class HebbianRNN(Module):
     self.register_param("U", (N_h, N_h))
     self.register_param("A", (N_h, N_h))
     self.register_param("b", (N_h,))
-    self.register_param("h_init", (N_h,))
+    self.register_param("h0", (N_h,))
     self.reset()
 
   def reset(self):
-    self._Hebb = np.zeros((self.N_h, self.N_h))
-    self._h = np.array(self.h_init)
+    self._Hebb = np.zeros_like(self.U)
+    self._h = np.array(self.h0)
     return np.array(self._h)
 
   def __call__(self, x):
-    h0 = self._h
+    hx = self._h
     U = self.U + self.A * self._Hebb
-    h1 = tanh(linear(x, self.W, self.b) + linear(h0, U, 0))
-    ΔHebb = self.η * np.outer(h0, h1)
+    hy = tanh(linear(x, self.W, self.b) + linear(hx, U, 0))
+    ΔHebb = self.η * np.outer(hx, hy)
     self._Hebb = (1 - self.η) * self._Hebb + ΔHebb
-    self._h = h1
+    self._h = hy
     return np.array(self._h)
 
 class LSTM(Module):
@@ -205,19 +210,18 @@ class LSTM(Module):
     self.N_h = N_h
     self.register_param("W", (N_i + N_h, 4 * N_h))
     self.register_param("b", (4 * N_h,))
-    self.register_param("c_init", (N_h,))
-    self.register_param("h_init", (N_h,))
+    self.register_param("c0", (N_h,))
+    self.register_param("h0", (N_h,))
     self.reset()
 
   def reset(self):
-    self._c = np.array(self.c_init)
-    self._h = np.array(self.h_init)
+    self._c = np.array(self.c0)
+    self._h = np.array(self.h0)
     return np.array(self._h)
 
   def __call__(self, x):
-    xh = np.concatenate([x, self._h])
-    fioc = linear(xh, self.W, self.b)
-    fioc = np.split(fioc, 4)
+    z = rnn(x, self._h, self.W, self.b)
+    fioc = np.split(z, 4)
     f = sigmoid(fioc[0])
     i = sigmoid(fioc[1])
     o = sigmoid(fioc[2])

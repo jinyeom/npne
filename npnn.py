@@ -131,7 +131,7 @@ class Linear(Module):
   def __call__(self, x):
     return linear(x, self.W, self.b)
 
-class Plastic(Module):
+class Hebbian(Module):
   def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
@@ -176,7 +176,7 @@ class RNN(Module):
     self._h = tanh(linear(xh, self.W, self.b))
     return np.array(self._h)
 
-class PlasticRNN(Module):
+class HebbianRNN(Module):
   def __init__(self, N_i, N_h, η):
     super().__init__()
     self.N_i = N_i
@@ -220,7 +220,8 @@ class LSTM(Module):
     return np.array(self._h)
 
   def __call__(self, x):
-    z = rnn(x, self._h, self.W, self.b)
+    xh = np.concatenate([x, self._h])
+    z = linear(xh, self.W, self.b)
     fioc = np.split(z, 4)
     f = sigmoid(fioc[0])
     i = sigmoid(fioc[1])

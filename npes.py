@@ -24,14 +24,13 @@ class Evaluator:
     raise NotImplementedError
 
   def __call__(self, solutions, seeds):
-    async_results = []
+    results = []
     with mp.Pool(self.num_workers) as pool:
       for solution, seed in zip(solutions, seeds):
         func = self.evaluate
         args = (solution, seed)
-        result = pool.apply_async(func, args=args)
-        async_results.append(result)
-      fitness = [r.get() for r in async_results]
+        results.append(pool.apply_async(func, args=args))
+      fitness = [r.get() for r in results]
     return np.array(fitness)
 
 class DecayingFloat:
@@ -66,67 +65,67 @@ class DecayingFloat:
 ##############
 
 class Optimizer:
-  def __init__(self, θ):
-    self.θ = θ
+  def __init__(self, theta):
+    self.theta = theta
     self.t = 0
 
   def update(self, grad):
     self.t += 1
-    self.θ += self._step(grad)
-    return np.array(self.θ)
+    self.theta += self._step(grad)
+    return np.array(self.theta)
 
   def _step(self, grad):
     raise NotImplementedError
 
 class SGD(Optimizer):
-  def __init__(self, θ, α, β=0.9):
-    super().__init__(θ)
-    self.α = α
-    self.β = β
-    self.v = np.zeros_like(θ)
+  def __init__(self, theta, alpha, beta=0.9):
+    super().__init__(theta)
+    self.alpha = alpha
+    self.beta = beta
+    self.v = np.zeros_like(theta)
 
   def _step(self, grad):
-    self.v = self.β * self.v + (1 - self.β) * grad
-    return -self.α * self.v
+    self.v = self.beta * self.v + (1 - self.beta) * grad
+    return -self.alpha * self.v
 
 class Adam(Optimizer):
-  def __init__(self, θ, α, β1=0.9, β2=0.999):
-    super().__init__(θ)
-    self.α = α
-    self.β1 = β1
-    self.β2 = β2
-    self.m = np.zeros_like(θ)
-    self.v = np.zeros_like(θ)
+  def __init__(self, theta, alpha, beta1=0.9, beta2=0.999):
+    super().__init__(theta)
+    self.alpha = alpha
+    self.beta1 = beta1
+    self.beta2 = beta2
+    self.m = np.zeros_like(theta)
+    self.v = np.zeros_like(theta)
 
   def _step(self, grad):
-    self.m = self.β1 * self.m + (1 - self.β1) * grad
-    self.v = self.β2 * self.v + (1 - self.β2) * grad ** 2
-    m_corr = 1 - self.β1 ** self.t
-    v_corr = np.sqrt(1 - self.β2 ** self.t)
-    α = self.α * v_corr / m_corr
-    return -α * self.m / (np.sqrt(self.v) + 1e-8)
+    self.m = self.beta1 * self.m + (1 - self.beta1) * grad
+    self.v = self.beta2 * self.v + (1 - self.beta2) * grad ** 2
+    m_corr = 1 - self.beta1 ** self.t
+    v_corr = np.sqrt(1 - self.beta2 ** self.t)
+    alpha = self.alpha * v_corr / m_corr
+    return -alpha * self.m / (np.sqrt(self.v) + 1e-8)
 
 ########################
 # Evolution strategies #
 ########################
 
 class ES:
-  def __init__(self, optim, σ):
+  def __init__(self, optim, sigma):
     self.optim = optim
-    self.μ = np.array(optim.θ)
-    self.σ = σ
-    self.ε = None
+    self.mu = np.array(optim.theta)
+    self.sigma = sigma
+    self.epsilon = None
 
   def sample(self, popsize):
     assert popsize % 2 == 0
-    ε_split = np.random.randn(popsize // 2, len(self.μ))
-    self.ε = np.concatenate([ε_split, -ε_split], axis=0)
-    return self.μ + self.σ * self.ε
+    eps_split = np.random.randn(popsize // 2, len(self.mu))
+    self.epsilon = np.concatenate([eps_split, -eps_split], axis=0)
+    return self.mu + self.sigma * self.epsilon
 
-  def update(self, F):
-    rank = np.empty_like(F, dtype=np.long)
-    rank[np.argsort(F)] = np.arange(len(F))
-    F = rank.astype(F.dtype) / (len(F) - 1) - 0.5
-    F = (F - np.mean(F)) / (np.std(F) + 1e-8)
-    grad = 1 / (len(F) * self.σ) * (self.ε.T @ F)
-    self.μ = self.optim.update(-grad)
+  def update(self, fitness):
+    rank = np.empty_like(fitness, dtype=np.long)
+    rank[np.argsort(fitness)] = np.arange(len(fitness))
+    fitness = rank.astype(fitness.dtype) / (len(fitness) - 1) - 0.5
+    fitness = (fitness - np.mean(fitness)) / (np.std(fitness) + 1e-8)
+    grad = 1 / (len(fitness) * self.sigma) * (self.epsilon.T @ fitness)
+    self.mu = self.optim.update(-grad)

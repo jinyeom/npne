@@ -32,8 +32,8 @@ def softmax(x):
 
 class Module:
   def __init__(self):
-    self._children = []
     self._params = []
+    self._children = []
 
   @property
   def params(self):
@@ -43,16 +43,16 @@ class Module:
   def __len__(self):
     return sum(p.size for p in self._params)
 
+  def register_param(self, name, shape):
+    param = np.empty(shape, dtype=np.float32)
+    setattr(self, name, param)
+    self._params.append(param)
+
   def register_module(self, name, module):
     assert isinstance(module, Module)
     setattr(self, name, module)
     self._children.append((name, module))
     self._params.extend(module._params)
-
-  def register_param(self, name, shape):
-    param = np.empty(shape, dtype=np.float32)
-    setattr(self, name, param)
-    self._params.append(param)
 
   def set_params(self, params):
     assert params.size == len(self)
@@ -174,33 +174,6 @@ class RNN(Module):
   def __call__(self, x):
     xh = np.concatenate([x, self._h])
     self._h = tanh(linear(xh, self.W, self.b))
-    return np.array(self._h)
-
-class HebbianRNN(Module):
-  def __init__(self, N_i, N_h, eta):
-    super().__init__()
-    self.N_i = N_i
-    self.N_h = N_h
-    self.eta = eta
-    self.register_param("W", (N_i, N_h))
-    self.register_param("U", (N_h, N_h))
-    self.register_param("A", (N_h, N_h))
-    self.register_param("b", (N_h,))
-    self.register_param("h0", (N_h,))
-    self.reset()
-
-  def reset(self):
-    self._Hebb = np.zeros_like(self.U)
-    self._h = np.array(self.h0)
-    return np.array(self._h)
-
-  def __call__(self, x):
-    hx = self._h
-    U = self.U + self.A * self._Hebb
-    hy = tanh(linear(x, self.W, self.b) + linear(hx, U, 0))
-    delta = self.eta * np.outer(hx, hy)
-    self._Hebb = (1 - self.eta) * self._Hebb + delta
-    self._h = hy
     return np.array(self._h)
 
 class LSTM(Module):

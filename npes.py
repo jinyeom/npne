@@ -33,33 +33,6 @@ class Evaluator:
       fitness = [r.get() for r in results]
     return np.array(fitness)
 
-class DecayingFloat:
-  def __init__(self, init, decay, limit):
-    assert 0 < decay <= 1
-    assert init >= limit
-    self.init = init
-    self.decay = decay
-    self.limit = limit
-    self.value = init
-
-  def __float__(self): return float(self.value)
-  def __repr__(self): return f"DecayingFloat({self.value})"
-  def __add__(self, other): return float(self) + other
-  def __radd__(self, other): return other + float(self)
-  def __sub__(self, other): return float(self) - other
-  def __rsub__(self, other): return other - float(self)
-  def __mul__(self, other): return float(self) * other
-  def __rmul__(self, other): return other * float(self)
-  def __truediv__(self, other): return float(self) / other
-  def __rtruediv__(self, other): return other / float(self)
-  def __pow__(self, other): return float(self) ** other
-  def __rpow__(self, other): return other ** float(self)
-
-  def update(self):
-    self.value = self.value * self.decay
-    self.value = max(self.value, self.limit)
-    return float(self.value)
-
 ##############
 # Optimizers #
 ##############

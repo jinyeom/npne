@@ -285,8 +285,8 @@ if __name__ == "__main__":
   class TestMaze(NumPyLab):
     def _build_lab(self):
       self._time_limit = 500
-      # self._lab = prim_maze(1, 10, seed=self._seed)
-      self._lab = four_rooms()
+      self._lab = prim_maze(10, 10, seed=self._seed)
+      # self._lab = four_rooms()
 
       pos = self._rand_pos()
       r, c = np.floor(pos).astype(np.int)

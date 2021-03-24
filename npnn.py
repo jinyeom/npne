@@ -132,11 +132,11 @@ class Linear(Module):
     return linear(x, self.W, self.b)
 
 class Hebbian(Module):
-  def __init__(self, N_i, N_h, η):
+  def __init__(self, N_i, N_h, eta):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.η = η
+    self.eta = eta
     self.register_param("W", (N_i, N_h))
     self.register_param("A", (N_i, N_h))
     self.register_param("b", (N_h,))
@@ -149,8 +149,8 @@ class Hebbian(Module):
   def __call__(self, x):
     W = self.W + self.A * self._Hebb
     y = tanh(linear(x, W, self.b))
-    ΔHebb = self.η * np.outer(x, y)
-    self._Hebb = (1 - self.η) * self._Hebb + ΔHebb
+    delta = self.eta * np.outer(x, y)
+    self._Hebb = (1 - self.eta) * self._Hebb + delta
     return y
 
 #############
@@ -177,11 +177,11 @@ class RNN(Module):
     return np.array(self._h)
 
 class HebbianRNN(Module):
-  def __init__(self, N_i, N_h, η):
+  def __init__(self, N_i, N_h, eta):
     super().__init__()
     self.N_i = N_i
     self.N_h = N_h
-    self.η = η
+    self.eta = eta
     self.register_param("W", (N_i, N_h))
     self.register_param("U", (N_h, N_h))
     self.register_param("A", (N_h, N_h))
@@ -198,8 +198,8 @@ class HebbianRNN(Module):
     hx = self._h
     U = self.U + self.A * self._Hebb
     hy = tanh(linear(x, self.W, self.b) + linear(hx, U, 0))
-    ΔHebb = self.η * np.outer(hx, hy)
-    self._Hebb = (1 - self.η) * self._Hebb + ΔHebb
+    delta = self.eta * np.outer(hx, hy)
+    self._Hebb = (1 - self.eta) * self._Hebb + delta
     self._h = hy
     return np.array(self._h)
 
